@@ -33,7 +33,9 @@ def get_location():
 	return jsonify(latest)
 @app.route('/')
 def homr():
-	return render_template("index4.html")
+	return render_template("index5.html")
 if __name__ == '__main__': 
-	app.run(host='0.0.0.0', port=5000)
+    app.run(ssl_context=('cert.pem', 'key.pem'),debug=True,host="0.0.0.0")
+
+	#app.run(host='0.0.0.0', port=5000)
 

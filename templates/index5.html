@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>GeoCam Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", sans-serif;
+      background: #000;
+    }
+
+    video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    .overlay {
+      position: fixed;
+      top: 10%;
+      left: 5%;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      z-index: 2;
+      width: 240px;
+      height: 120px;
+    }
+
+    .overlay.edit-mode {
+      border: 1px dashed #888;
+    }
+
+    /* Drag handle (top-left corner) */
+    .drag-handle {
+      width: 20px;
+      height: 20px;
+      background: #6200ea;
+      cursor: grab;
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      border-radius: 4px;
+      z-index: 11;
+    }
+
+    /* Resize handles */
+    .resize-handle {
+      position: absolute;
+      background: #6200ea;
+      z-index: 10;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .resize-right {
+      width: 12px;
+      height: 100%;
+      top: 0;
+      right: 0;
+      cursor: ew-resize;
+    }
+
+    .resize-top {
+      width: 100%;
+      height: 12px;
+      top: 0;
+      left: 0;
+      cursor: ns-resize;
+    }
+
+    .resize-corner {
+      width: 20px;
+      height: 20px;
+      top: 0;
+      right: 0;
+      cursor: nwse-resize;
+    }
+
+    /* Content scales with flex & percentages */
+    .overlay-content {
+      flex: 1;
+      display: flex;
+      padding: 8px;
+      box-sizing: border-box;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .map-thumb {
+      flex-shrink: 0;
+      width: 20%;
+      /* always 20% of overlay width */
+      aspect-ratio: 1;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    .overlay-text {
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.2;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .overlay-text h3 {
+      margin: 0 0 4px;
+      font-size: 1em;
+      color: #111;
+    }
+
+    .overlay-text p {
+      margin: 2px 0;
+      font-size: 0.83em;
+      color: #444;
+    }
+
+    /* FAB and Capture (unchanged) */
+    .capture-btn {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+    }
+
+    .capture-btn button {
+      background: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 64px;
+      height: 64px;
+      font-size: 28px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+
+    .fab-menu {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      z-index: 3;
+    }
+
+    .fab-main {
+      background: #6200ea;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 56px;
+      height: 56px;
+      font-size: 24px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+    }
+
+    .fab-options {
+      display: none;
+      flex-direction: column;
+      margin-bottom: 10px;
+    }
+
+    .fab-options.show {
+      display: flex;
+    }
+
+    .fab-options button {
+      margin-top: 10px;
+      background: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 48px;
+      height: 48px;
+      font-size: 24px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+
+    canvas {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="snapshot"></canvas>
+
+  <div class="overlay" id="overlay">
+    <div class="drag-handle hidden" id="dragHandle"></div>
+    <div class="overlay-content">
+      <img id="mapThumb" class="map-thumb" src="" alt="Map">
+      <div class="overlay-text">
+        <h3 id="address">Waiting for location...</h3>
+        <p id="coords"></p>
+        <p id="timestamp"></p>
+      </div>
+    </div>
+    <div class="resize-handle resize-right hidden" id="resizeRight"></div>
+    <div class="resize-handle resize-top   hidden" id="resizeTop"></div>
+    <div class="resize-handle resize-corner hidden" id="resizeCorner"></div>
+  </div>
+
+  <div class="capture-btn">
+    <button onclick="capture()" title="Capture">
+      <span class="material-icons">photo_camera</span>
+    </button>
+  </div>
+
+  <div class="fab-menu">
+    <div class="fab-options" id="fabOptions">
+      <button onclick="toggleOverlay()" title="Toggle Overlay">
+        <span class="material-icons">visibility</span>
+      </button>
+      <button onclick="toggleEditMode()" title="Edit Overlay">
+        <span class="material-icons">edit_location_alt</span>
+      </button>
+      <button onclick="switchCamera()" title="Switch Camera">
+        <span class="material-icons">flip_camera_android</span>
+      </button>
+    </div>
+    <button class="fab-main" onclick="toggleFabMenu()">
+      <span class="material-icons">menu</span>
+    </button>
+  </div>
+
+  <script>
+    let stream, useFrontCamera = false, isEditing = false;
+    let startX, startY, startW, startH, startTop, startLeft, isResizing = false, isDragging = false;
+
+    async function initCamera() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: useFrontCamera ? "user" : "environment" }, audio: false
+      });
+      video.srcObject = stream;
+    }
+    initCamera();
+
+    function toggleFabMenu() {
+      fabOptions.classList.toggle("show");
+    }
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera; initCamera();
+    }
+    function toggleOverlay() {
+      overlay.style.display = overlay.style.display === "none" ? "block" : "none";
+    }
+
+    function toggleEditMode() {
+      isEditing = !isEditing;
+      overlay.classList.toggle("edit-mode", isEditing);
+      overlay.setAttribute("contenteditable", isEditing);
+      ["resizeRight", "resizeTop", "resizeCorner", "dragHandle"].forEach(id =>
+        document.getElementById(id).classList.toggle("hidden", !isEditing)
+      );
+    }
+
+    function updateOverlay(lat, lon, addr) {
+      address.textContent = addr || "Unknown address";
+      coords.textContent = `Lat:${lat.toFixed(6)} Lon:${lon.toFixed(6)}`;
+      timestamp.textContent = `${new Date().toLocaleString()}`;
+      mapThumb.src = `https://static-maps.yandex.ru/1.x/?ll=${lon},${lat}&z=14&size=160,160&l=sat&pt=${lon},${lat},pm2rdm`;
+    }
+    function fetchLocation() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(p => {
+        const { latitude: lat, longitude: lon } = p.coords;
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`)
+          .then(r => r.json()).then(j => {
+            updateOverlay(lat, lon, j.display_name.split(",").slice(0, 3).join(", "));
+          }).catch(() => updateOverlay(lat, lon, "Unknown"));
+      });
+    }
+    setInterval(fetchLocation, 10000); fetchLocation();
+  
+function capture() {
+  const video    = document.getElementById("video");
+  const canvas   = document.getElementById("snapshot");
+  const overlay  = document.getElementById("overlay");
+  const mapImg   = document.getElementById("mapThumb");
+  const addrEl   = document.getElementById("address");
+  const coordsEl = document.getElementById("coords");
+  const timeEl   = document.getElementById("timestamp");
+
+  // 1) Set canvas to video resolution
+  const vw = video.videoWidth, vh = video.videoHeight;
+  canvas.width = vw;
+  canvas.height = vh;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  // 2) Overlay rect in video‐space
+  const rect   = overlay.getBoundingClientRect();
+  const scaleX = vw / window.innerWidth;
+  const scaleY = vh / window.innerHeight;
+  const ox = rect.left * scaleX;
+  const oy = rect.top  * scaleY;
+  const ow = rect.width  * scaleX;
+  const oh = rect.height * scaleY;
+
+  // 3) Draw white background exactly overlay size
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.fillRect(ox, oy, ow, oh);
+
+  // 4) Compute dimensions
+  const margin = oh * 0.03;          // small border
+  const mapW   = ow * 0.3;           // map takes 30% width
+  const mapH   = oh;                 // 100% overlay height
+  const textX  = ox + margin + mapW + margin;
+  const textW  = ow - (mapW + margin*3);
+  const textY0 = oy + margin;
+
+  // 5) Draw map thumbnail at full overlay height
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    ctx.drawImage(img,
+      ox + margin,
+      oy,
+      mapW,
+      mapH
+    );
+
+    // 6) Setup text style & wrapping
+    const fontSize   = oh * 0.12;
+    const lineHeight = fontSize * 1.3;
+    ctx.fillStyle    = "#111";
+    ctx.font         = `${fontSize}px Segoe UI`;
+    ctx.textBaseline = "top";
+
+    // 7) Draw wrapped text lines
+    let cursorY = textY0;
+    [addrEl.textContent, coordsEl.textContent, timeEl.textContent]
+      .forEach(str => {
+        wrapText(ctx, str, textX, cursorY, textW, lineHeight);
+        // advance by the number of lines drawn
+        const lines = Math.ceil(ctx.measureText(str).width / textW);
+        cursorY += lineHeight * (lines || 1);
+      });
+
+    // 8) Save PNG
+    const link = document.createElement("a");
+    link.download = "geocam.png";
+    link.href     = canvas.toDataURL("image/png");
+    link.click();
+  };
+  img.src = mapImg.src;
+
+  // helper to wrap text
+  function wrapText(ctx, text, x, y, maxW, lh) {
+    const words = text.split(' ');
+    let line = '';
+    for (let word of words) {
+      const test = line + word + ' ';
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, x, y);
+        line = word + ' ';
+        y   += lh;
+      } else {
+        line = test;
+      }
+    }
+    ctx.fillText(line, x, y);
+  }
+}
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("snapshot");
+    const overlay = document.getElementById("overlay");
+    const mapImg = document.getElementById("mapThumb");
+    const addrEl = document.getElementById("address");
+    const coordsEl = document.getElementById("coords");
+    const timeEl = document.getElementById("timestamp");
+
+    // 1) Full‐res video canvas
+    const vw = video.videoWidth, vh = video.videoHeight;
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, vw, vh);
+
+    // 2) Overlay box in video‐space
+    const rect = overlay.getBoundingClientRect();
+    const scaleX = vw / window.innerWidth;
+    const scaleY = vh / window.innerHeight;
+    const ox = rect.left * scaleX;
+    const oy = rect.top * scaleY;
+
+    // 3) Decide font size & map size based on overlay height
+    //    Here we bump up to 18% of overlay height for easier reading
+    const oh = rect.height * scaleY;
+    const ow = rect.width * scaleX;
+    const fontSize = oh * 0.18;
+    ctx.font = `${fontSize}px Segoe UI`;
+    ctx.textBaseline = "top";
+
+    // 4) Measure text widths
+    const lines = [
+      addrEl.textContent,
+      coordsEl.textContent,
+      timeEl.textContent
+    ];
+    let maxTextW = 0;
+    lines.forEach(line => {
+      const w = ctx.measureText(line).width;
+      if (w > maxTextW) maxTextW = w;
+    });
+
+    // 5) Compute margin and map dimensions
+    const margin = fontSize * 0.5;
+    const mapW = oh * 0.4;     // 40% of box height
+    const mapH = mapW;         // square
+
+    // 6) Determine background box size to fit map + text
+    //    width = margin + mapW + margin + text width + margin
+    //    height = margin + (fontSize * lines.length * 1.3) + margin
+    const bgW = margin + mapW + margin + maxTextW + margin;
+    const bgH = margin + (fontSize * 1.3 * lines.length) + margin;
+
+    // 7) Draw background rectangle
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fillRect(ox, oy, bgW, bgH);
+
+    // 8) Draw map thumbnail
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      ctx.drawImage(img,
+        ox + margin,
+        oy + margin,
+        mapW, mapH
+      );
+
+      // 9) Draw text stacked
+      ctx.fillStyle = "#111";
+      let textX = ox + margin + mapW + margin;
+      let textY = oy + margin;
+      lines.forEach(line => {
+        ctx.fillText(line, textX, textY);
+        textY += fontSize * 1.3;
+      });
+
+      // 10) Download
+      const link = document.createElement("a");
+      link.download = "geocam.png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    };
+    img.src = mapImg.src;
+
+    // Generic init for resize and drag
+    function initDragResize(handle, dir) {
+      handle.addEventListener("mousedown", start);
+      handle.addEventListener("touchstart", start, { passive: false });
+      function start(e) {
+        if (!isEditing) return;
+        e.preventDefault();
+        const p = e.touches ? e.touches[0] : e;
+        startX = p.clientX; startY = p.clientY;
+        const st = window.getComputedStyle(overlay);
+        startW = parseFloat(st.width); startH = parseFloat(st.height);
+        startTop = overlay.offsetTop; startLeft = overlay.offsetLeft;
+        isResizing = dir !== "drag";
+        isDragging = dir === "drag";
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", stop);
+        document.addEventListener("touchmove", move, { passive: false });
+        document.addEventListener("touchend", stop);
+      }
+      function move(e) {
+        if (!(isResizing || isDragging)) return;
+        e.preventDefault();
+        const p = e.touches ? e.touches[0] : e;
+        const dx = p.clientX - startX, dy = p.clientY - startY;
+
+        if (isDragging) {
+          overlay.style.top = startTop + dy + "px";
+          overlay.style.left = startLeft + dx + "px";
+        }
+        else {
+          if (dir.includes("right"))
+            overlay.style.width = Math.max(100, startW + dx) + "px";
+          if (dir.includes("top")) {
+            overlay.style.height = Math.max(60, startH - dy) + "px";
+            overlay.style.top = startTop + dy + "px";
+          }
+        }
+        // Dynamic content scaling via CSS font-size & image width %
+        const scaleW = overlay.offsetWidth / 240;
+        overlay.querySelector(".overlay-text").style.fontSize = (12 * scaleW) + "px";
+        overlay.querySelector(".map-thumb").style.width = (20 * scaleW) + "%";
+      }
+      function stop() {
+        isResizing = isDragging = false;
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", stop);
+        document.removeEventListener("touchmove", move);
+        document.removeEventListener("touchend", stop);
+      }
+    }
+
+    initDragResize(dragHandle, "drag");
+    initDragResize(resizeRight, "right");
+    initDragResize(resizeTop, "top");
+    initDragResize(resizeCorner, "top right");
+  </script>
+</body>
+
+</html>
