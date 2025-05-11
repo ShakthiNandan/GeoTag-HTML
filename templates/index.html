@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GeoCam Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    body, html {
+      margin: 0; padding: 0;
+      overflow: hidden;
+      background: black;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    video, canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      z-index: 0;
+    }
+
+    .overlay {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 24px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      padding: 16px 24px;
+      z-index: 10;
+      text-align: left;
+      min-width: 280px;
+    }
+
+    .overlay h3 {
+      margin: 0;
+      font-size: 16px;
+      color: #222;
+    }
+    .overlay p {
+      margin: 4px 0;
+      font-size: 14px;
+      color: #444;
+    }
+
+    .capture-btn {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+    }
+    .capture-btn button {
+      background: #e91e63;
+      width: 70px; height: 70px;
+      border-radius: 50%;
+      font-size: 32px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      border: none;
+      color: white;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .fab-menu {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 20;
+    }
+
+    .fab-main {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      font-size: 24px;
+      width: 56px; height: 56px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .fab-options {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 10px;
+      transition: all 0.3s ease-in-out;
+    }
+
+    .fab-options.show {
+      display: flex;
+    }
+
+    .fab-options button {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      font-size: 20px;
+      width: 48px; height: 48px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="snapshot" style="display:none;"></canvas>
+
+<div class="overlay" id="overlay">
+  <h3 id="address">Waiting for location...</h3>
+  <p id="coords"></p>
+  <p id="timestamp"></p>
+</div>
+
+<div class="capture-btn">
+  <button onclick="capture()" title="Capture">
+    <span class="material-icons">photo_camera</span>
+  </button>
+</div>
+
+<div class="fab-menu">
+  <button class="fab-main" onclick="toggleFabMenu()">
+    <span class="material-icons">menu</span>
+  </button>
+  <div class="fab-options" id="fabOptions">
+    <button onclick="toggleOverlay()" title="Toggle Overlay"><span class="material-icons">visibility</span></button>
+    <button onclick="toggleEditMode()" title="Edit Overlay"><span class="material-icons">edit_location_alt</span></button>
+    <button onclick="switchCamera()" title="Switch Camera"><span class="material-icons">flip_camera_android</span></button>
+  </div>
+</div>
+
+<script>
+let stream = null;
+let useFrontCamera = false;
+
+async function initCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+  }
+
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: useFrontCamera ? "user" : "environment" },
+    audio: false
+  });
+  document.getElementById('video').srcObject = stream;
+}
+
+initCamera();
+
+function toggleFabMenu() {
+  document.getElementById("fabOptions").classList.toggle("show");
+}
+
+function switchCamera() {
+  useFrontCamera = !useFrontCamera;
+  initCamera();
+}
+
+function toggleOverlay() {
+  const overlay = document.getElementById("overlay");
+  overlay.style.display = overlay.style.display === "none" ? "block" : "none";
+}
+
+function toggleEditMode() {
+  const overlay = document.getElementById("overlay");
+  overlay.setAttribute("contenteditable", overlay.isContentEditable ? "false" : "true");
+  overlay.style.border = overlay.isContentEditable ? "1px dashed #666" : "none";
+}
+
+function updateOverlay(lat, lon, address) {
+  const coords = `Lat: ${lat.toFixed(6)} | Lon: ${lon.toFixed(6)}`;
+  const now = new Date();
+  const timestamp = `Date: ${now.toLocaleDateString()} Time: ${now.toLocaleTimeString()}`;
+
+  document.getElementById("address").textContent = address || "Unknown address";
+  document.getElementById("coords").textContent = coords;
+  document.getElementById("timestamp").textContent = timestamp;
+}
+
+function capture() {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("snapshot");
+  const overlay = document.getElementById("overlay");
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const rect = overlay.getBoundingClientRect();
+  const scaleX = canvas.width / window.innerWidth;
+  const scaleY = canvas.height / window.innerHeight;
+
+  ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.fillRect(rect.left * scaleX, rect.top * scaleY, rect.width * scaleX, rect.height * scaleY);
+
+  ctx.font = "20px Segoe UI";
+  ctx.fillStyle = "#222";
+  ctx.fillText(document.getElementById("address").textContent, rect.left * scaleX + 10, rect.top * scaleY + 30);
+  ctx.fillText(document.getElementById("coords").textContent, rect.left * scaleX + 10, rect.top * scaleY + 55);
+  ctx.fillText(document.getElementById("timestamp").textContent, rect.left * scaleX + 10, rect.top * scaleY + 80);
+
+  const link = document.createElement("a");
+  link.download = "geocam.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+// Geolocation fetch
+async function fetchLocation() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
+      const data = await res.json();
+      const addr = data.display_name.split(",").slice(0, 3).join(", ");
+      updateOverlay(lat, lon, addr);
+    } catch {
+      updateOverlay(lat, lon, "Unknown");
+    }
+  });
+}
+
+setInterval(fetchLocation, 10000);
+fetchLocation();
+</script>
+
+</body>
+</html>

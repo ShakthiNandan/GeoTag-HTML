@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GeoCam Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", sans-serif;
+      background: #000;
+    }
+
+    video {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    .overlay {
+      position: fixed;
+      top: 10%;
+      left: 5%;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      padding: 12px;
+      z-index: 2;
+      max-width: 80vw;
+      min-width: 300px;
+    }
+
+    .overlay-content {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .overlay-text {
+      flex: 1;
+    }
+
+    .map-thumb {
+      width: 160px;
+      height: 160px;
+      border-radius: 16px;
+      object-fit: cover;
+    }
+
+    .overlay h3 {
+      font-size: 16px;
+      margin: 0 0 8px;
+      color: #111;
+    }
+
+    .overlay p {
+      font-size: 14px;
+      margin: 4px 0;
+      color: #444;
+    }
+
+    .capture-btn {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+    }
+
+    .capture-btn button {
+      background: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 64px;
+      height: 64px;
+      font-size: 28px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      cursor: pointer;
+    }
+
+    .fab-menu {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      z-index: 3;
+    }
+
+    .fab-main {
+      background: #6200ea;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 56px;
+      height: 56px;
+      font-size: 24px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    }
+
+    .fab-options {
+      display: none;
+      flex-direction: column;
+      margin-bottom: 10px;
+    }
+
+    .fab-options.show {
+      display: flex;
+    }
+
+    .fab-options button {
+      margin-top: 10px;
+      background: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 48px;
+      height: 48px;
+      font-size: 24px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }
+
+    canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="snapshot"></canvas>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-content">
+    <img id="mapThumb" class="map-thumb" src="" alt="Map">
+    <div class="overlay-text">
+      <h3 id="address">Waiting for location...</h3>
+      <p id="coords"></p>
+      <p id="timestamp"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Capture Button -->
+<div class="capture-btn">
+  <button onclick="capture()" title="Capture">
+    <span class="material-icons">photo_camera</span>
+  </button>
+</div>
+
+<!-- FAB Menu -->
+<div class="fab-menu">
+  <div class="fab-options" id="fabOptions">
+    <button onclick="toggleOverlay()" title="Toggle Overlay"><span class="material-icons">visibility</span></button>
+    <button onclick="toggleEditMode()" title="Edit Overlay"><span class="material-icons">edit_location_alt</span></button>
+    <button onclick="switchCamera()" title="Switch Camera"><span class="material-icons">flip_camera_android</span></button>
+  </div>
+  <button class="fab-main" onclick="toggleFabMenu()">
+    <span class="material-icons">menu</span>
+  </button>
+</div>
+
+<script>
+let stream = null;
+let useFrontCamera = false;
+let currentLat = 0, currentLon = 0;
+
+async function initCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: useFrontCamera ? "user" : "environment" },
+    audio: false
+  });
+  document.getElementById('video').srcObject = stream;
+}
+initCamera();
+
+function toggleFabMenu() {
+  document.getElementById("fabOptions").classList.toggle("show");
+}
+
+function switchCamera() {
+  useFrontCamera = !useFrontCamera;
+  initCamera();
+}
+
+function toggleOverlay() {
+  const overlay = document.getElementById("overlay");
+  overlay.style.display = overlay.style.display === "none" ? "block" : "none";
+}
+
+function toggleEditMode() {
+  const overlay = document.getElementById("overlay");
+  overlay.setAttribute("contenteditable", overlay.isContentEditable ? "false" : "true");
+  overlay.style.border = overlay.isContentEditable ? "1px dashed #666" : "none";
+}
+
+function updateOverlay(lat, lon, address) {
+  currentLat = lat; currentLon = lon;
+
+  const coords = `Lat: ${lat.toFixed(6)} | Lon: ${lon.toFixed(6)}`;
+  const now = new Date();
+  const timestamp = `Date: ${now.toLocaleDateString()} Time: ${now.toLocaleTimeString()}`;
+
+  document.getElementById("address").textContent = address || "Unknown address";
+  document.getElementById("coords").textContent = coords;
+  document.getElementById("timestamp").textContent = timestamp;
+
+  const mapUrl = `https://static-maps.yandex.ru/1.x/?ll=${lon},${lat}&z=14&size=160,160&l=sat&pt=${lon},${lat},pm2rdm`;
+  document.getElementById("mapThumb").src = mapUrl;
+}
+
+function capture() {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("snapshot");
+  const overlay = document.getElementById("overlay");
+  const mapImg = document.getElementById("mapThumb");
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const scaleX = canvas.width / window.innerWidth;
+  const scaleY = canvas.height / window.innerHeight;
+  const rect = overlay.getBoundingClientRect();
+
+  const ox = rect.left * scaleX;
+  const oy = rect.top * scaleY;
+  const ow = rect.width * scaleX;
+  const oh = rect.height * scaleY;
+
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.fillRect(ox, oy, ow, oh);
+
+  const address = document.getElementById("address").textContent;
+  const coords = document.getElementById("coords").textContent;
+  const time = document.getElementById("timestamp").textContent;
+
+  ctx.fillStyle = "#111";
+  ctx.font = `${20 * scaleX}px Segoe UI`;
+  ctx.fillText(address, ox + 180, oy + 30);
+  ctx.fillText(coords, ox + 180, oy + 60);
+  ctx.fillText(time, ox + 180, oy + 90);
+
+  const tempImg = new Image();
+  tempImg.crossOrigin = "anonymous";
+  tempImg.onload = () => {
+    ctx.drawImage(tempImg, ox + 10, oy + 10, 160 * scaleX, 160 * scaleY);
+    const link = document.createElement("a");
+    link.download = "geocam.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+  tempImg.src = mapImg.src;
+}
+
+function fetchLocation() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
+      const data = await res.json();
+      const addr = data.display_name.split(",").slice(0, 3).join(", ");
+      updateOverlay(lat, lon, addr);
+    } catch {
+      updateOverlay(lat, lon, "Unknown");
+    }
+  });
+}
+
+setInterval(fetchLocation, 10000);
+fetchLocation();
+</script>
+</body>
+</html>
